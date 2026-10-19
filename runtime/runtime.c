@@ -245,6 +245,141 @@ void gc_collect(
   printf_if_debug("––––––––––––––––––––––––––––––––\n");
 } 
 
+// –– Dict –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+//
+// Dict wrapper layout (GC tuple, 3 words):
+//   [metadata: 3<<1] [count<<1] [capacity<<1] [backing_ptr|1]
+//
+// Backing array layout (GC tuple, 3*capacity words):
+//   [metadata: (3*capacity)<<1] [(flag, key, val) * capacity]
+//   flag: 0=empty, 2=occupied  (LSB=0 so GC ignores the flag word)
+//
+// Both wrapper and backing are initially malloc'd. The GC treats them as
+// ordinary heap objects (they have proper metadata words) and copies them
+// into its managed heap on the first collection. The original malloc'd blocks
+// are then leaked (a few words each), which is acceptable.
+
+static uint64_t struct_hash(int64_t tagged);
+static int struct_eq(int64_t a, int64_t b);
+
+static uint64_t struct_hash(int64_t tagged) {
+    if (!(tagged & 1)) {
+        // Integer or bool: hash the untagged value
+        return (uint64_t)(tagged >> 1) * 2654435761ULL;
+    }
+    // Heap pointer: hash by contents recursively
+    int64_t* obj = gc_remove_ptr_tag((int64_t*) tagged);
+    uint64_t len = (uint64_t)((uint64_t)obj[0] >> 1);
+    uint64_t h = len * 2654435761ULL;
+    for (uint64_t i = 0; i < len; i++) {
+        h = h * 31 + struct_hash(obj[i + 1]);
+    }
+    return h;
+}
+
+static int struct_eq(int64_t a, int64_t b) {
+    if ((a & 1) != (b & 1)) return 0;
+    if (!(a & 1)) return a == b;
+    // Both heap pointers: compare contents recursively
+    int64_t* obj_a = gc_remove_ptr_tag((int64_t*) a);
+    int64_t* obj_b = gc_remove_ptr_tag((int64_t*) b);
+    uint64_t len_a = (uint64_t)((uint64_t)obj_a[0] >> 1);
+    uint64_t len_b = (uint64_t)((uint64_t)obj_b[0] >> 1);
+    if (len_a != len_b) return 0;
+    for (uint64_t i = 0; i < len_a; i++) {
+        if (!struct_eq(obj_a[i + 1], obj_b[i + 1])) return 0;
+    }
+    return 1;
+}
+
+// Insert key→val into backing, assuming key is not already present and there is space.
+static void dict_insert_new(int64_t* backing, int64_t capacity, int64_t key, int64_t val) {
+    uint64_t h = struct_hash(key);
+    for (int64_t i = 0; i < capacity; i++) {
+        int64_t slot = (int64_t)((h + (uint64_t)i) % (uint64_t)capacity);
+        int64_t* entry = backing + 1 + 3 * slot;
+        if (entry[0] == 0) {
+            entry[0] = 2;
+            entry[1] = key;
+            entry[2] = val;
+            return;
+        }
+    }
+    printf("PANIC: dict_insert_new found no empty slot\n");
+    exit(1);
+}
+
+int64_t dict_create(uint64_t capacity) {
+    int64_t* wrapper = (int64_t*) malloc_safe((1 + 3) * 8);
+    wrapper[0] = 3 << 1;
+    wrapper[1] = 0;                           // count = 0 (tagged)
+    wrapper[2] = (int64_t)(capacity << 1);    // capacity (tagged)
+
+    uint64_t backing_words = 1 + 3 * capacity;
+    int64_t* backing = (int64_t*) malloc_safe(backing_words * 8);
+    memset(backing, 0, backing_words * 8);
+    backing[0] = (int64_t)((3 * capacity) << 1);
+
+    wrapper[3] = (int64_t) gc_add_ptr_tag(backing);
+    return (int64_t) gc_add_ptr_tag(wrapper);
+}
+
+int64_t dict_get(int64_t tagged_dict, int64_t tagged_key) {
+    int64_t* wrapper  = gc_remove_ptr_tag((int64_t*) tagged_dict);
+    int64_t  capacity = (int64_t)((uint64_t)wrapper[2] >> 1);
+    int64_t* backing  = gc_remove_ptr_tag((int64_t*) wrapper[3]);
+
+    uint64_t h = struct_hash(tagged_key);
+    for (int64_t i = 0; i < capacity; i++) {
+        int64_t slot  = (int64_t)((h + (uint64_t)i) % (uint64_t)capacity);
+        int64_t* entry = backing + 1 + 3 * slot;
+        if (entry[0] == 0) break;  // empty slot: key absent
+        if (entry[0] == 2 && struct_eq(entry[1], tagged_key)) return entry[2];
+    }
+    printf("KeyError\n");
+    exit(1);
+}
+
+int64_t dict_set(int64_t tagged_dict, int64_t tagged_key, int64_t tagged_val) {
+    int64_t* wrapper  = gc_remove_ptr_tag((int64_t*) tagged_dict);
+    int64_t  count    = (int64_t)((uint64_t)wrapper[1] >> 1);
+    int64_t  capacity = (int64_t)((uint64_t)wrapper[2] >> 1);
+    int64_t* backing  = gc_remove_ptr_tag((int64_t*) wrapper[3]);
+
+    // Update existing key if present
+    uint64_t h = struct_hash(tagged_key);
+    for (int64_t i = 0; i < capacity; i++) {
+        int64_t slot  = (int64_t)((h + (uint64_t)i) % (uint64_t)capacity);
+        int64_t* entry = backing + 1 + 3 * slot;
+        if (entry[0] == 0) break;
+        if (entry[0] == 2 && struct_eq(entry[1], tagged_key)) {
+            entry[2] = tagged_val;
+            return 0;
+        }
+    }
+
+    // New key: resize if load > 0.7
+    if ((uint64_t)count * 10 >= (uint64_t)capacity * 7) {
+        int64_t new_cap = capacity * 2;
+        uint64_t new_words = (uint64_t)(1 + 3 * new_cap);
+        int64_t* new_backing = (int64_t*) malloc_safe(new_words * 8);
+        memset(new_backing, 0, new_words * 8);
+        new_backing[0] = (3 * new_cap) << 1;
+        for (int64_t i = 0; i < capacity; i++) {
+            int64_t* entry = backing + 1 + 3 * i;
+            if (entry[0] == 2) dict_insert_new(new_backing, new_cap, entry[1], entry[2]);
+        }
+        wrapper[2] = new_cap << 1;
+        wrapper[3] = (int64_t) gc_add_ptr_tag(new_backing);
+        backing    = new_backing;
+        capacity   = new_cap;
+    }
+
+    dict_insert_new(backing, capacity, tagged_key, tagged_val);
+    wrapper[1] = (count + 1) << 1;
+    return 0;
+}
+
 // Tests ///////////////////////////////////////////////////////////////////////
 
 // int64_t* fake_stack_begin;

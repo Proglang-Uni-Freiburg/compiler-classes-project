@@ -254,10 +254,35 @@ void gc_collect(
 //   [metadata: (3*capacity)<<1] [(flag, key, val) * capacity]
 //   flag: 0=empty, 2=occupied  (LSB=0 so GC ignores the flag word)
 //
-// Both wrapper and backing are initially malloc'd. The GC treats them as
-// ordinary heap objects (they have proper metadata words) and copies them
-// into its managed heap on the first collection. The original malloc'd blocks
-// are then leaked (a few words each), which is acceptable.
+// Wrapper and backing live on the GC heap. Functions that allocate take the
+// current stack pointer and collect first if necessary, so they never run out
+// of space halfway through. They must not use their heap pointer arguments
+// after a collection, as the objects may have moved; the compiled code reloads
+// its (spilled) variables, which the GC has updated.
+
+// Collect if fewer than `words` words are free on the from-space.
+static void gc_ensure(int64_t* stack_end, uint64_t words) {
+    if (gc_free_ptr + words >= gc_fromspace_end) gc_collect(stack_end, words);
+}
+
+// Allocate `words` words that were reserved with gc_ensure beforehand.
+static int64_t* gc_bump(uint64_t words) {
+    if (gc_free_ptr + words > gc_fromspace_end) {
+        printf("PANIC: dict allocation without reserved heap space\n");
+        exit(1);
+    }
+    int64_t* p = gc_free_ptr;
+    gc_free_ptr += words;
+    return p;
+}
+
+// Words that dict_set may allocate when inserting a new key into the dict.
+static uint64_t dict_set_words(int64_t* wrapper) {
+    uint64_t count    = (uint64_t)wrapper[1] >> 1;
+    uint64_t capacity = (uint64_t)wrapper[2] >> 1;
+    if (count * 10 >= capacity * 7) return 1 + 3 * 2 * capacity;
+    return 0;
+}
 
 static uint64_t struct_hash(int64_t tagged);
 static int struct_eq(int64_t a, int64_t b);
@@ -309,19 +334,28 @@ static void dict_insert_new(int64_t* backing, int64_t capacity, int64_t key, int
     exit(1);
 }
 
-int64_t dict_create(uint64_t capacity) {
-    int64_t* wrapper = (int64_t*) malloc_safe((1 + 3) * 8);
+int64_t dict_create(int64_t* stack_end, uint64_t capacity) {
+    uint64_t backing_words = 1 + 3 * capacity;
+    gc_ensure(stack_end, (1 + 3) + backing_words);
+
+    int64_t* wrapper = gc_bump(1 + 3);
     wrapper[0] = 3 << 1;
     wrapper[1] = 0;                           // count = 0 (tagged)
     wrapper[2] = (int64_t)(capacity << 1);    // capacity (tagged)
 
-    uint64_t backing_words = 1 + 3 * capacity;
-    int64_t* backing = (int64_t*) malloc_safe(backing_words * 8);
+    int64_t* backing = gc_bump(backing_words);
     memset(backing, 0, backing_words * 8);
     backing[0] = (int64_t)((3 * capacity) << 1);
 
     wrapper[3] = (int64_t) gc_add_ptr_tag(backing);
     return (int64_t) gc_add_ptr_tag(wrapper);
+}
+
+// Must be called before dict_set, so that a resize inside dict_set finds enough
+// free heap space.
+void dict_reserve(int64_t* stack_end, int64_t tagged_dict) {
+    int64_t* wrapper = gc_remove_ptr_tag((int64_t*) tagged_dict);
+    gc_ensure(stack_end, dict_set_words(wrapper));
 }
 
 int64_t dict_get(int64_t tagged_dict, int64_t tagged_key) {
@@ -362,7 +396,7 @@ int64_t dict_set(int64_t tagged_dict, int64_t tagged_key, int64_t tagged_val) {
     if ((uint64_t)count * 10 >= (uint64_t)capacity * 7) {
         int64_t new_cap = capacity * 2;
         uint64_t new_words = (uint64_t)(1 + 3 * new_cap);
-        int64_t* new_backing = (int64_t*) malloc_safe(new_words * 8);
+        int64_t* new_backing = gc_bump(new_words);
         memset(new_backing, 0, new_words * 8);
         new_backing[0] = (3 * new_cap) << 1;
         for (int64_t i = 0; i < capacity; i++) {

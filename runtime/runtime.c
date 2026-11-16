@@ -252,7 +252,10 @@ void gc_collect(
 //
 // Backing array layout (GC tuple, 3*capacity words):
 //   [metadata: (3*capacity)<<1] [(flag, key, val) * capacity]
-//   flag: 0=empty, 2=occupied  (LSB=0 so GC ignores the flag word)
+//   flag: 0=empty, 2=occupied, 4=deleted  (LSB=0 so GC ignores the flag word)
+//
+// Deleted slots keep probe chains intact: lookups skip them, inserts reuse
+// them, and a resize drops them.
 //
 // Wrapper and backing live on the GC heap. Functions that allocate take the
 // current stack pointer and collect first if necessary, so they never run out
@@ -318,12 +321,13 @@ static int struct_eq(int64_t a, int64_t b) {
 }
 
 // Insert key→val into backing, assuming key is not already present and there is space.
+// Empty and deleted slots can both be used.
 static void dict_insert_new(int64_t* backing, int64_t capacity, int64_t key, int64_t val) {
     uint64_t h = struct_hash(key);
     for (int64_t i = 0; i < capacity; i++) {
         int64_t slot = (int64_t)((h + (uint64_t)i) % (uint64_t)capacity);
         int64_t* entry = backing + 1 + 3 * slot;
-        if (entry[0] == 0) {
+        if (entry[0] != 2) {
             entry[0] = 2;
             entry[1] = key;
             entry[2] = val;
@@ -358,7 +362,8 @@ void dict_reserve(int64_t* stack_end, int64_t tagged_dict) {
     gc_ensure(stack_end, dict_set_words(wrapper));
 }
 
-int64_t dict_get(int64_t tagged_dict, int64_t tagged_key) {
+// Returns the slot holding key, or NULL if the key is absent.
+static int64_t* dict_find(int64_t tagged_dict, int64_t tagged_key) {
     int64_t* wrapper  = gc_remove_ptr_tag((int64_t*) tagged_dict);
     int64_t  capacity = (int64_t)((uint64_t)wrapper[2] >> 1);
     int64_t* backing  = gc_remove_ptr_tag((int64_t*) wrapper[3]);
@@ -368,10 +373,38 @@ int64_t dict_get(int64_t tagged_dict, int64_t tagged_key) {
         int64_t slot  = (int64_t)((h + (uint64_t)i) % (uint64_t)capacity);
         int64_t* entry = backing + 1 + 3 * slot;
         if (entry[0] == 0) break;  // empty slot: key absent
-        if (entry[0] == 2 && struct_eq(entry[1], tagged_key)) return entry[2];
+        if (entry[0] == 2 && struct_eq(entry[1], tagged_key)) return entry;
     }
-    printf("KeyError\n");
-    exit(1);
+    return NULL;
+}
+
+// Returns a tagged bool.
+int64_t dict_has(int64_t tagged_dict, int64_t tagged_key) {
+    return dict_find(tagged_dict, tagged_key) ? 1 << 1 : 0;
+}
+
+// The compiler checks with dict_has that the key exists. Returns None.
+int64_t dict_delete(int64_t tagged_dict, int64_t tagged_key) {
+    int64_t* entry = dict_find(tagged_dict, tagged_key);
+    if (entry) {
+        int64_t* wrapper = gc_remove_ptr_tag((int64_t*) tagged_dict);
+        entry[0] = 4;
+        // clear key and value, so the GC doesn't keep them alive
+        entry[1] = 0;
+        entry[2] = 0;
+        wrapper[1] = (int64_t)(((uint64_t)wrapper[1] >> 1) - 1) << 1;
+    }
+    return 0;
+}
+
+// The compiler checks with dict_has that the key exists.
+int64_t dict_get(int64_t tagged_dict, int64_t tagged_key) {
+    int64_t* entry = dict_find(tagged_dict, tagged_key);
+    if (!entry) {
+        printf("PANIC: dict_get on missing key\n");
+        exit(1);
+    }
+    return entry[2];
 }
 
 int64_t dict_set(int64_t tagged_dict, int64_t tagged_key, int64_t tagged_val) {
@@ -381,15 +414,10 @@ int64_t dict_set(int64_t tagged_dict, int64_t tagged_key, int64_t tagged_val) {
     int64_t* backing  = gc_remove_ptr_tag((int64_t*) wrapper[3]);
 
     // Update existing key if present
-    uint64_t h = struct_hash(tagged_key);
-    for (int64_t i = 0; i < capacity; i++) {
-        int64_t slot  = (int64_t)((h + (uint64_t)i) % (uint64_t)capacity);
-        int64_t* entry = backing + 1 + 3 * slot;
-        if (entry[0] == 0) break;
-        if (entry[0] == 2 && struct_eq(entry[1], tagged_key)) {
-            entry[2] = tagged_val;
-            return 0;
-        }
+    int64_t* entry = dict_find(tagged_dict, tagged_key);
+    if (entry) {
+        entry[2] = tagged_val;
+        return 0;
     }
 
     // New key: resize if load > 0.7

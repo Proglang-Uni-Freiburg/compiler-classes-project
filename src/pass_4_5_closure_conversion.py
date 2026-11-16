@@ -104,6 +104,10 @@ def closure_conv_expr(decls_out: list[tgt.Decl], e: src.Expr) -> tgt.Expr:
             return tgt.EDict(IList([(closure_conv_expr(decls_out, k), closure_conv_expr(decls_out, v)) for k, v in items]))
         case src.EDictAccess(e, key):
             return tgt.EDictAccess(closure_conv_expr(decls_out, e), closure_conv_expr(decls_out, key))
+        case src.EDictHas(e, key):
+            return tgt.EDictHas(closure_conv_expr(decls_out, e), closure_conv_expr(decls_out, key))
+        case src.EDictDel(e, key):
+            return tgt.EDictDel(closure_conv_expr(decls_out, e), closure_conv_expr(decls_out, key))
         case src.ELambda(params, body, fvs):
             fun_name = Label.fresh("lambda")
             closure_name = Id.fresh("closure")

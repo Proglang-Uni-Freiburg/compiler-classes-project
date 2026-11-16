@@ -177,6 +177,9 @@ def shrink_expr(e: src.Expr) -> tgt.Expr:
             return tgt.EDictAccess(shrink_expr(e1), tgt.EConst(i, '63bit'))
         case src.ETupleAccess(e, i):
             return tgt.ETupleAccess(shrink_expr(e), i)
+        # the first field of the dict wrapper (see runtime.c) is the tagged count
+        case src.ETupleLen(e1) if isinstance(e.type, TDict): # type: ignore
+            return tgt.ETupleAccess(shrink_expr(e1), 0)
         case src.ETupleLen(e):
             return tgt.ETupleLen(shrink_expr(e))
         case src.ECall(e_fun, e_args):
@@ -189,6 +192,10 @@ def shrink_expr(e: src.Expr) -> tgt.Expr:
             return tgt.EDict(IList([(shrink_expr(k), shrink_expr(v)) for k, v in items]))
         case src.EDictAccess(e, key):
             return tgt.EDictAccess(shrink_expr(e), shrink_expr(key))
+        case src.EDictHas(e, key):
+            return tgt.EDictHas(shrink_expr(e), shrink_expr(key))
+        case src.EDictDel(e, key):
+            return tgt.EDictDel(shrink_expr(e), shrink_expr(key))
         case src.EField(expr, name):
             class_type = e.type # type: ignore
             field_ids, _ = unique_member_resolution(class_type)

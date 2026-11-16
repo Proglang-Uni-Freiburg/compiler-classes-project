@@ -72,6 +72,12 @@ def map_node(node: ast.AST, ctx: Cctx) -> Any:
             if not all([(c.isalnum() or c == "_") for c in id]):
                 raise IllegalName(id)
             return EVar(Id(id))
+        case ast.Compare(key, [ast.In()], [e]):
+            return EDictHas(map_node(e, ctx), map_node(key, ctx))
+        case ast.Compare(key, [ast.NotIn()], [e]):
+            return EOp1("not", EDictHas(map_node(e, ctx), map_node(key, ctx)))
+        case ast.Delete([ast.Subscript(e, key, _)]):
+            return SExpr(EDictDel(map_node(e, ctx), map_node(key, ctx)))
         case ast.UnaryOp(op, operand):
             return EOp1(map_node(op, ctx), map_node(operand, ctx))
         case (

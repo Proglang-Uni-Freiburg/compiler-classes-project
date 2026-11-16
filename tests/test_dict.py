@@ -61,8 +61,9 @@ print(d[k])
 def test_bool_value():
     assert run("""
 d: dict[int, bool] = {1: True}
-print(d[1])
-""") == "True"
+if d[1]:
+    print(1)
+""") == "1"
 
 def test_infer_key_type_from_literal():
     assert run("""

@@ -130,7 +130,29 @@ def alloc_expr(e: src.Expr) -> tgt.Expr:
         case src.EDict(items):
             return tgt.EDict(IList([(alloc_expr(k), alloc_expr(v)) for k, v in items]))
         case src.EDictAccess(e, key):
-            return tgt.EDictAccess(alloc_expr(e), alloc_expr(key))
+            return alloc_key_checked(tgt.EDictAccess, e, key)
+        case src.EDictDel(e, key):
+            return alloc_key_checked(tgt.EDictDel, e, key)
+        case src.EDictHas(e, key):
+            return tgt.EDictHas(alloc_expr(e), alloc_expr(key))
+
+# Raise a KeyError before `d[key]` or `del d[key]` if the key is missing.
+# Like the interpreter, the exception value is 0.
+def alloc_key_checked(
+    node: type[tgt.EDictAccess] | type[tgt.EDictDel], e: src.Expr, key: src.Expr
+) -> tgt.Expr:
+    d = Id.fresh("dict")
+    k = Id.fresh("key")
+    body = ilist(
+        tgt.SAssign(tgt.LId(d), alloc_expr(e)),
+        tgt.SAssign(tgt.LId(k), alloc_expr(key)),
+        tgt.SIf(
+            tgt.EDictHas(tgt.EVar(d), tgt.EVar(k)),
+            ilist(),
+            ilist(tgt.SRaise(tgt.EConst(0, '63bit'))),
+        ),
+    )
+    return tgt.EBegin(body, node(tgt.EVar(d), tgt.EVar(k)))
 
 def alloc_exprs(es: IList[src.Expr]) -> IList[tgt.Expr]:
     return IList([alloc_expr(e) for e in es])

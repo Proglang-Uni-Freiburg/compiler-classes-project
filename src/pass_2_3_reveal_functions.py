@@ -106,6 +106,10 @@ def reveal_expr(funs: set[Id], e: src.Expr) -> tgt.Expr:
             return tgt.EDict(IList([(reveal_expr(funs, k), reveal_expr(funs, v)) for k, v in items]))
         case src.EDictAccess(e, key):
             return tgt.EDictAccess(reveal_expr(funs, e), reveal_expr(funs, key))
+        case src.EDictHas(e, key):
+            return tgt.EDictHas(reveal_expr(funs, e), reveal_expr(funs, key))
+        case src.EDictDel(e, key):
+            return tgt.EDictDel(reveal_expr(funs, e), reveal_expr(funs, key))
 
 def reveal_exprs(funs: set[Id], es: IList[src.Expr]) -> IList[tgt.Expr]:
     return IList([reveal_expr(funs, e) for e in es])

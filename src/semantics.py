@@ -198,6 +198,8 @@ def eval_expr(env: RTEnv, e: Expr) -> Value:
             match eval_expr(env, e):
                 case VTuple(vs):
                     return len(vs)
+                case VDict(entries):
+                    return len(entries)
                 case _:
                     raise Exception("Tried to get length of non-tuple value.")
         case ECall(func, args):
@@ -216,6 +218,24 @@ def eval_expr(env: RTEnv, e: Expr) -> Value:
                     raise Exception(f"Tried field access on non-object {obj}")
         case EDict(items):
             return VDict([(eval_expr(env, k), eval_expr(env, v)) for k, v in items])
+        case EDictHas(e, key):
+            match eval_expr(env, e):
+                case VDict(entries):
+                    k = eval_expr(env, key)
+                    return any(dict_key_equal(ek, k) for ek, _ in entries)
+                case _:
+                    raise Exception("Dict operation on non-dict value")
+        case EDictDel(e, key):
+            match eval_expr(env, e):
+                case VDict(entries):
+                    k = eval_expr(env, key)
+                    for i, (ek, _) in enumerate(entries):
+                        if dict_key_equal(ek, k):
+                            del entries[i]
+                            return None
+                    raise UserException(0)
+                case _:
+                    raise Exception("Dict operation on non-dict value")
         case EDictAccess(e, key):
             match eval_expr(env, e):
                 case VDict(entries):

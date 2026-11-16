@@ -108,6 +108,10 @@ def limit_expr(e: src.Expr) -> tgt.Expr:
             return tgt.EDict(IList([(limit_expr(k), limit_expr(v)) for k, v in items]))
         case src.EDictAccess(e, key):
             return tgt.EDictAccess(limit_expr(e), limit_expr(key))
+        case src.EDictHas(e, key):
+            return tgt.EDictHas(limit_expr(e), limit_expr(key))
+        case src.EDictDel(e, key):
+            return tgt.EDictDel(limit_expr(e), limit_expr(key))
 
 def limit_exprs(es: IList[src.Expr]) -> IList[tgt.Expr]:
     return IList([limit_expr(e) for e in es])

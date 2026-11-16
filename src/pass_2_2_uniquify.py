@@ -110,6 +110,10 @@ def uniquify_expr(renaming: dict[Id, Id], e: src.Expr) -> tgt.Expr:
             return tgt.EDict(IList([(uniquify_expr(renaming, k), uniquify_expr(renaming, v)) for k, v in items]))
         case src.EDictAccess(e, key):
             return tgt.EDictAccess(uniquify_expr(renaming, e), uniquify_expr(renaming, key))
+        case src.EDictHas(e, key):
+            return tgt.EDictHas(uniquify_expr(renaming, e), uniquify_expr(renaming, key))
+        case src.EDictDel(e, key):
+            return tgt.EDictDel(uniquify_expr(renaming, e), uniquify_expr(renaming, key))
 
 def uniquify_exprs(renaming: dict[Id, Id], es: IList[src.Expr]) -> IList[tgt.Expr]:
     return IList([uniquify_expr(renaming, e) for e in es])

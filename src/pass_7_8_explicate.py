@@ -225,6 +225,10 @@ def explicate_expr(
             return l, tgt.EDict(items_out)
         case src.EDictAccess(e, key):
             return l, tgt.EDictAccess(explicate_atom(e), explicate_atom(key))
+        case src.EDictHas(e, key):
+            return l, tgt.EDictHas(explicate_atom(e), explicate_atom(key))
+        case src.EDictDel(e, key):
+            return l, tgt.EDictDel(explicate_atom(e), explicate_atom(key))
 
 def explicate_atoms(
     es: IList[src.ExprAtom],

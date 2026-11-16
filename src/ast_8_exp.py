@@ -44,7 +44,7 @@ class ExcTmpNames:
 type Expr = ExprAtom | EOp1 | EOp2Arith | EInput | EOp2Comp \
           | ETupleAccess | ETupleLen | EAllocate | EGlobal \
           | ECall | EFunRef \
-          | EDict | EDictAccess
+          | EDict | EDictAccess | EDictHas | EDictDel
 
 @dataclass(frozen=True)
 class EOp1:
@@ -103,6 +103,16 @@ class EDict:
 
 @dataclass(frozen=True)
 class EDictAccess:
+    e: ExprAtom
+    key: ExprAtom
+
+@dataclass(frozen=True)
+class EDictHas:
+    e: ExprAtom
+    key: ExprAtom
+
+@dataclass(frozen=True)
+class EDictDel:
     e: ExprAtom
     key: ExprAtom
 
@@ -297,3 +307,7 @@ def pretty_expr(e: Expr) -> str:
             return "{" + pairs + "}"
         case EDictAccess(e, key):
             return f"{pretty_expr(e)}[{pretty_expr(key)}]"
+        case EDictHas(e, key):
+            return f"{pretty_expr(key)} in {pretty_expr(e)}"
+        case EDictDel(e, key):
+            return f"del {pretty_expr(e)}[{pretty_expr(key)}]"

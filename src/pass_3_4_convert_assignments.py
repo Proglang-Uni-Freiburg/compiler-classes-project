@@ -122,6 +122,10 @@ def conv_ass_expr(AF: set[Id], e: src.Expr) -> tgt.Expr:
             return tgt.EDict(IList([(conv_ass_expr(AF, k), conv_ass_expr(AF, v)) for k, v in items]))
         case src.EDictAccess(e, key):
             return tgt.EDictAccess(conv_ass_expr(AF, e), conv_ass_expr(AF, key))
+        case src.EDictHas(e, key):
+            return tgt.EDictHas(conv_ass_expr(AF, e), conv_ass_expr(AF, key))
+        case src.EDictDel(e, key):
+            return tgt.EDictDel(conv_ass_expr(AF, e), conv_ass_expr(AF, key))
 
 def conv_ass_exprs(AF: set[Id], es: IList[src.Expr]) -> IList[tgt.Expr]:
     return IList([conv_ass_expr(AF, e) for e in es])
@@ -155,6 +159,10 @@ def free_vars(e: src.Expr) -> set[Id]:
         case src.EDict(items):
             return set().union(*(free_vars(k) | free_vars(v) for k, v in items))
         case src.EDictAccess(e, key):
+            return free_vars(e) | free_vars(key)
+        case src.EDictHas(e, key):
+            return free_vars(e) | free_vars(key)
+        case src.EDictDel(e, key):
             return free_vars(e) | free_vars(key)
 
 def free_vars_list(es: IList[src.Expr]) -> set[Id]:
@@ -192,6 +200,10 @@ def free_in_lambda(e: src.Expr) -> set[Id]:
         case src.EDict(items):
             return set().union(*(free_in_lambda(k) | free_in_lambda(v) for k, v in items))
         case src.EDictAccess(e, key):
+            return free_in_lambda(e) | free_in_lambda(key)
+        case src.EDictHas(e, key):
+            return free_in_lambda(e) | free_in_lambda(key)
+        case src.EDictDel(e, key):
             return free_in_lambda(e) | free_in_lambda(key)
 
 def free_in_lambda_list(es: IList[src.Expr]) -> set[Id]:

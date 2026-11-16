@@ -60,7 +60,8 @@ def type_check_stmt(ctx: TCtx, s: Stmt) -> bool:
             _ = type_check_expr(ctx, e)
             return False
         case SPrint(e):
-            _ = type_check_expr(ctx, e)
+            te = type_check_expr(ctx, e)
+            check_type_equal(te, TInt(), e)
             return False
         case SAssign(x, t, e):
             if t is None:
@@ -266,10 +267,13 @@ def type_check_expr(ctx: TCtx, e: Expr) -> Type:
                     return val_ty
                 case t:
                     raise TypeError(f"Tuple access on non-tuple type {t}.")
-        case ETupleLen(e):
-            t = type_check_expr(ctx, e)
+        case ETupleLen(expr):
+            t = type_check_expr(ctx, expr)
+            e.type = t
             match t:
                 case TTuple(ts):
+                    return TInt()
+                case TDict():
                     return TInt()
                 case t:
                     raise TypeError(f"Tuple length used on non-tuple type {t}.")
@@ -312,6 +316,14 @@ def type_check_expr(ctx: TCtx, e: Expr) -> Type:
                 check_expr(ctx, k, key_ty)
                 check_expr(ctx, v, val_ty)
             return TDict(key_ty, val_ty)
+        case EDictHas(dict_e, key) | EDictDel(dict_e, key):
+            t = type_check_expr(ctx, dict_e)
+            match t:
+                case TDict(key_ty, _):
+                    check_expr(ctx, key, key_ty)
+                    return TBool() if isinstance(e, EDictHas) else TNone()
+                case _:
+                    raise TypeError(f"Dict operation on non-dict type {t}")
         case EDictAccess(dict_e, key):
             t = type_check_expr(ctx, dict_e)
             match t:

@@ -20,7 +20,7 @@ type Op2 = Literal["+", "-", "==", "!=", "<=", "<", ">", ">=", "and", "or", "is"
 type Expr = EConst | EVar | EOp1 | EOp2 | EInput | EIf \
           | ETuple | ETupleAccess | ETupleLen \
           | ECall | ELambda | EField \
-          | EDict | EDictAccess
+          | EDict | EDictAccess | EDictHas | EDictDel
 
 @dataclass(frozen=True)
 class EConst:
@@ -60,7 +60,7 @@ class ETupleAccess:
     e: Expr
     index: int
 
-@dataclass(frozen=True)
+@dataclass # not frozen, as we add the type of e to it in the typechecker!
 class ETupleLen:
     e: Expr
 
@@ -80,6 +80,16 @@ class EDict:
 
 @dataclass(frozen=True)
 class EDictAccess:
+    e: Expr
+    key: Expr
+
+@dataclass(frozen=True)
+class EDictHas:
+    e: Expr
+    key: Expr
+
+@dataclass(frozen=True)
+class EDictDel:
     e: Expr
     key: Expr
 
@@ -261,6 +271,10 @@ def pretty_expr(e: Expr) -> str:
             return "{" + pairs + "}"
         case EDictAccess(e, key):
             return f"{pretty_expr(e)}[{pretty_expr(key)}]"
+        case EDictHas(e, key):
+            return f"{pretty_expr(key)} in {pretty_expr(e)}"
+        case EDictDel(e, key):
+            return f"del {pretty_expr(e)}[{pretty_expr(key)}]"
 
 def pretty_anything(x: Program | Decl | Stmt | Expr) -> str:
     try:

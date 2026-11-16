@@ -20,7 +20,7 @@ type Op2 = Literal["+", "-", "==", "!=", "<=", "<", ">", ">="]
 type Expr = EConst | EVar | EOp1 | EOp2 | EInput | EIf \
           | ETuple | ETupleAccess | ETupleLen \
           | ECall | EFunRef | ELambda \
-          | EDict | EDictAccess
+          | EDict | EDictAccess | EDictHas | EDictDel
 
 @dataclass(frozen=True)
 class EConst:
@@ -85,6 +85,16 @@ class EDict:
 
 @dataclass(frozen=True)
 class EDictAccess:
+    e: Expr
+    key: Expr
+
+@dataclass(frozen=True)
+class EDictHas:
+    e: Expr
+    key: Expr
+
+@dataclass(frozen=True)
+class EDictDel:
     e: Expr
     key: Expr
 
@@ -226,3 +236,7 @@ def pretty_expr(e: Expr) -> str:
             return "{" + pairs + "}"
         case EDictAccess(e, key):
             return f"{pretty_expr(e)}[{pretty_expr(key)}]"
+        case EDictHas(e, key):
+            return f"{pretty_expr(key)} in {pretty_expr(e)}"
+        case EDictDel(e, key):
+            return f"del {pretty_expr(e)}[{pretty_expr(key)}]"

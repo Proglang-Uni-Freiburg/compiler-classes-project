@@ -55,7 +55,7 @@ class EIf:
 class ETuple:
     es: IList[Expr]
 
-@dataclass(frozen=True)
+@dataclass # not frozen, as we add the type of e to it in the typechecker!
 class ETupleAccess:
     e: Expr
     index: int

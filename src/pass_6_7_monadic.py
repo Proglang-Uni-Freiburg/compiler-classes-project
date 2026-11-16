@@ -27,6 +27,11 @@ def monadic_stmt(s: src.Stmt) -> IList[tgt.Stmt]:
         case src.SPrint(e):
             p_e, e_out = monadic_atom(e)
             return p_e + ilist(tgt.SPrint(e_out))
+        # dict_set takes the value as an argument, so it must be atomic
+        case src.SAssign(src.LDictSet() as l, e):
+            p_l, l_out = monadic_lhs(l)
+            p_e, e_out = monadic_atom(e)
+            return p_l + p_e + ilist(tgt.SAssign(l_out, e_out))
         case src.SAssign(l, e):
             p_l, l_out = monadic_lhs(l)
             p_e, e_out = monadic_expr(e)
@@ -60,10 +65,6 @@ def monadic_lhs(l: src.Lhs) -> tuple[IList[tgt.Stmt], tgt.Lhs]:
         case src.LSubscript(e, i):
             p, e_out = monadic_atom(e)
             return p, tgt.LSubscript(e_out, i)
-        case src.LDictSet(e, key):
-            p_e, e_out = monadic_atom(e)
-            p_key, key_out = monadic_atom(key)
-            return p_e + p_key, tgt.LDictSet(e_out, key_out)
         case src.LDictSet(e, key):
             p_e, e_out = monadic_atom(e)
             p_key, key_out = monadic_atom(key)

@@ -252,8 +252,9 @@ def type_check_expr(ctx: TCtx, e: Expr) -> Type:
             return tbody
         case ETuple(es):
             return TTuple(IList([type_check_expr(ctx, e) for e in es]))
-        case ETupleAccess(e, i):
-            t = type_check_expr(ctx, e)
+        case ETupleAccess(expr, i):
+            t = type_check_expr(ctx, expr)
+            e.type = t
             match t:
                 case TTuple(ts):
                     if 0 <= i < len(ts):

@@ -1,6 +1,8 @@
 
 # Plan: Add Python Dictionary Support
 
+> Status: implemented. See CHANGELOG.md for what was done and todo.md for open issues.
+
 ## Context
 
 The project already has full class/OOP support. The next feature is Python `dict[K, V]` support. Dictionaries need:

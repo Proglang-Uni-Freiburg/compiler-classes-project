@@ -11,8 +11,16 @@ are separate)
 - EConst has no size field (integers not yet tagged)
 - Has EField, EMethod, SClass for OOP
 - Op2 includes "and", "or", "is" (Python-specific operators)
-- SAssign.lhs can be Id | EField, with optional type annotation
+- SAssign.lhs can be Id | EField | EDictAccess, with optional type annotation
 - ELambda has no fvs (free variables not yet computed)
+- Dicts: EDict (literal), EDictAccess (`d[k]`, non-constant key), EDictHas
+(`k in d`; `not in` is EOp1("not", EDictHas)), EDictDel (`del d[k]`, wrapped
+in SExpr) and SFor (`for` over `d`, `d.keys()`, `d.values()`, `d.items()`;
+key and/or value loop variable)
+- `d[0]` with a constant int key parses as ETupleAccess and `len(d)` as
+ETupleLen, since the parser can't tell dicts from tuples. The type checker
+stores the operand type on both nodes (they are not frozen) so shrink can
+tell them apart.
 
 
 ## Pass 1→2 — Shrink
@@ -24,6 +32,12 @@ via tuple/subscript)
 - Creates a main() wrapper that calls program_main inside a STry to catch
 unhandled exceptions
 - Strips type annotations from DFun.params
+- Dicts: ETupleAccess on a TDict becomes EDictAccess(e, EConst(i));
+ETupleLen on a TDict becomes ETupleAccess(e, 0), which reads the count
+field of the dict wrapper (see runtime.c)
+- Lowers SFor to a while loop over the slots of the dict's backing array:
+`slot = dict_next(it, 0); while slot >= 0: k = dict_key_at(it, slot);
+v = dict_value_at(it, slot); body; slot = dict_next(it, slot + 1)`
 
 
 ## AST 2 — ast_2_shrunk
@@ -34,7 +48,9 @@ Diff from AST 1:
 - EConst gains size: Literal['64bit', '63bit'] — tagged integers introduced
 - EField, EMethod, SClass gone — desugared away
 - Op2 drops "and", "or", "is"
-- SAssign.lhs is Id | ETupleAccess with no type annotation
+- SAssign.lhs is Id | ETupleAccess | EDictAccess with no type annotation
+- SFor gone; EDictNext, EDictKey and EDictValue added for the lowered
+iteration (they exist in all following ASTs)
 
 
 ## Pass 2→2 — Uniquify
@@ -64,6 +80,7 @@ and captured by a lambda. These need to be "boxed" so that the closure and
 outer scope share the same mutable cell:
 - Wraps each AF variable in a 1-element tuple: x = (initial_value,)
 - Rewrites all reads/writes of boxed vars as x[0]
+- Turns a `d[k] = v` target into LDictSet(dict, key)
 - Annotates ELambda with its free variables (fvs)
 
 
@@ -71,8 +88,8 @@ outer scope share the same mutable cell:
 
 Diff from AST 3:
 - ELambda gains fvs: IList[Id]
-- SAssign.lhs becomes the new typed union Lhs = LId | LSubscript (replaces
-raw Id | ETupleAccess)
+- SAssign.lhs becomes the new typed union Lhs = LId | LSubscript | LDictSet
+(replaces raw Id | ETupleAccess | EDictAccess)
 
 
 ## Pass 4→5 — Closure Conversion
@@ -107,6 +124,11 @@ Expands ETuple(es) into explicit GC-managed heap allocation:
 3. Write each element with LSubscript stores
 4. EBegin is used to wrap these steps inside an expression
 
+Dicts are not expanded here, as the runtime allocates them. EDictAccess and
+EDictDel are wrapped in a key check, so a missing key raises a catchable
+exception with value 0 (like the interpreter):
+`EBegin([d = e; k = key; if not dict_has(d, k): raise 0], EDictAccess(d, k))`
+
 
 ## AST 6 — ast_6_alloc
 
@@ -128,6 +150,8 @@ context)
 - SWhile's test expression is split: re-evaluation code becomes test_body:
 IList[Stmt] plus test_expr: EOp2Comp
 - Binary ops split into EOp2Arith and EOp2Comp (comparisons vs arithmetic)
+- Dict operands become atoms, as does the value of an LDictSet assignment,
+since all of them are passed to runtime calls
 
 
 ## AST 7 — ast_7_mon
@@ -177,6 +201,18 @@ mappings:
 - Calls → move args into a0–a7, emit Call
 - STailCall → TailCall (resolved later)
 - STryEnter/STryExit → stack pointer / frame pointer saves
+- Dicts → calls into runtime.c:
+  - EDict → `dict_create(sp, 16)` into a fresh temporary, then a
+  `dict_set` per item, then move to the target. The temporary is needed as
+  the GC may move the dict and only updates variables.
+  - LDictSet → `dict_reserve(sp, d)` followed by `dict_set(d, k, v)`.
+  `dict_reserve` collects if a resize might not fit, so that `dict_set`
+  never collects halfway through.
+  - EDictAccess / EDictHas / EDictDel / EDictNext / EDictKey / EDictValue →
+  `dict_get` / `dict_has` / `dict_delete` / `dict_next` / `dict_key_at` /
+  `dict_value_at`
+  - Functions that may collect receive the stack pointer; live variables are
+  spilled around the calls so the GC updates them
 
 
 ## AST 9 — ast_9_sel

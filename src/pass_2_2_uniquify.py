@@ -112,6 +112,12 @@ def uniquify_expr(renaming: dict[Id, Id], e: src.Expr) -> tgt.Expr:
             return tgt.EDictAccess(uniquify_expr(renaming, e), uniquify_expr(renaming, key))
         case src.EDictHas(e, key):
             return tgt.EDictHas(uniquify_expr(renaming, e), uniquify_expr(renaming, key))
+        case src.EDictNext(e, idx):
+            return tgt.EDictNext(uniquify_expr(renaming, e), uniquify_expr(renaming, idx))
+        case src.EDictKey(e, idx):
+            return tgt.EDictKey(uniquify_expr(renaming, e), uniquify_expr(renaming, idx))
+        case src.EDictValue(e, idx):
+            return tgt.EDictValue(uniquify_expr(renaming, e), uniquify_expr(renaming, idx))
         case src.EDictDel(e, key):
             return tgt.EDictDel(uniquify_expr(renaming, e), uniquify_expr(renaming, key))
 

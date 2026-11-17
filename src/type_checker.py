@@ -124,6 +124,20 @@ def type_check_stmt(ctx: TCtx, s: Stmt) -> bool:
             check_type_equal(ttest, TBool(), test)
             type_check_stmts(ctx, body)
             return False
+        case SFor(key, value, e, body):
+            match type_check_expr(ctx, e):
+                case TDict(key_ty, val_ty):
+                    for x, ty in [(key, key_ty), (value, val_ty)]:
+                        if x is None:
+                            continue
+                        if x in ctx:
+                            check_type_equal(ty, ctx[x], s)
+                        else:
+                            ctx[x] = ty
+                case t:
+                    raise TypeError(f"Iteration over non-dict type {t}")
+            type_check_stmts(ctx, body)
+            return False
         case SReturn(e):
             check_expr(ctx, e, ctx[Id('@ret')])
             return True

@@ -344,6 +344,23 @@ def eval_stmts(env: RTEnv, ss: IList[Stmt]) -> Optional[Value]:
                             continue
                         case rv:
                             return rv
+            case SFor(key, value, e, body):
+                match eval_expr(env, e):
+                    case VDict(entries):
+                        # iterate over a snapshot; modifying the dict while
+                        # iterating is not supported
+                        for ek, ev in list(entries):
+                            if key is not None:
+                                assign(env, key, ek)
+                            if value is not None:
+                                assign(env, value, ev)
+                            match eval_stmts(env, body):
+                                case None:
+                                    continue
+                                case rv:
+                                    return rv
+                    case v:
+                        raise Exception(f"Iteration over non-dict value {v}")
             case SReturn(e):
                 return eval_expr(env, e)
             case SRaise(e):

@@ -20,7 +20,8 @@ type Op2 = Literal["+", "-", "==", "!=", "<=", "<", ">", ">="]
 type Expr = EConst | EVar | EOp1 | EOp2 | EInput | EIf \
           | ETuple | ETupleAccess | ETupleLen \
           | ECall | EFunRef | ELambda \
-          | EDict | EDictAccess | EDictHas | EDictDel
+          | EDict | EDictAccess | EDictHas | EDictDel \
+          | EDictNext | EDictKey | EDictValue
 
 @dataclass(frozen=True)
 class EConst:
@@ -97,6 +98,21 @@ class EDictHas:
 class EDictDel:
     e: Expr
     key: Expr
+
+@dataclass(frozen=True)
+class EDictNext:
+    e: Expr
+    index: Expr
+
+@dataclass(frozen=True)
+class EDictKey:
+    e: Expr
+    index: Expr
+
+@dataclass(frozen=True)
+class EDictValue:
+    e: Expr
+    index: Expr
 
 # Statements
 
@@ -240,3 +256,9 @@ def pretty_expr(e: Expr) -> str:
             return f"{pretty_expr(key)} in {pretty_expr(e)}"
         case EDictDel(e, key):
             return f"del {pretty_expr(e)}[{pretty_expr(key)}]"
+        case EDictNext(e, index):
+            return f"dict_next({pretty_expr(e)}, {pretty_expr(index)})"
+        case EDictKey(e, index):
+            return f"dict_key({pretty_expr(e)}, {pretty_expr(index)})"
+        case EDictValue(e, index):
+            return f"dict_value({pretty_expr(e)}, {pretty_expr(index)})"

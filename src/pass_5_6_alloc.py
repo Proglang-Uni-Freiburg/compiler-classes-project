@@ -135,6 +135,12 @@ def alloc_expr(e: src.Expr) -> tgt.Expr:
             return alloc_key_checked(tgt.EDictDel, e, key)
         case src.EDictHas(e, key):
             return tgt.EDictHas(alloc_expr(e), alloc_expr(key))
+        case src.EDictNext(e, idx):
+            return tgt.EDictNext(alloc_expr(e), alloc_expr(idx))
+        case src.EDictKey(e, idx):
+            return tgt.EDictKey(alloc_expr(e), alloc_expr(idx))
+        case src.EDictValue(e, idx):
+            return tgt.EDictValue(alloc_expr(e), alloc_expr(idx))
 
 # Raise a KeyError before `d[key]` or `del d[key]` if the key is missing.
 # Like the interpreter, the exception value is 0.

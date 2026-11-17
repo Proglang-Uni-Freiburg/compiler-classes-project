@@ -124,6 +124,12 @@ def conv_ass_expr(AF: set[Id], e: src.Expr) -> tgt.Expr:
             return tgt.EDictAccess(conv_ass_expr(AF, e), conv_ass_expr(AF, key))
         case src.EDictHas(e, key):
             return tgt.EDictHas(conv_ass_expr(AF, e), conv_ass_expr(AF, key))
+        case src.EDictNext(e, idx):
+            return tgt.EDictNext(conv_ass_expr(AF, e), conv_ass_expr(AF, idx))
+        case src.EDictKey(e, idx):
+            return tgt.EDictKey(conv_ass_expr(AF, e), conv_ass_expr(AF, idx))
+        case src.EDictValue(e, idx):
+            return tgt.EDictValue(conv_ass_expr(AF, e), conv_ass_expr(AF, idx))
         case src.EDictDel(e, key):
             return tgt.EDictDel(conv_ass_expr(AF, e), conv_ass_expr(AF, key))
 
@@ -162,6 +168,12 @@ def free_vars(e: src.Expr) -> set[Id]:
             return free_vars(e) | free_vars(key)
         case src.EDictHas(e, key):
             return free_vars(e) | free_vars(key)
+        case src.EDictNext(e, idx):
+            return free_vars(e) | free_vars(idx)
+        case src.EDictKey(e, idx):
+            return free_vars(e) | free_vars(idx)
+        case src.EDictValue(e, idx):
+            return free_vars(e) | free_vars(idx)
         case src.EDictDel(e, key):
             return free_vars(e) | free_vars(key)
 
@@ -203,6 +215,12 @@ def free_in_lambda(e: src.Expr) -> set[Id]:
             return free_in_lambda(e) | free_in_lambda(key)
         case src.EDictHas(e, key):
             return free_in_lambda(e) | free_in_lambda(key)
+        case src.EDictNext(e, idx):
+            return free_in_lambda(e) | free_in_lambda(idx)
+        case src.EDictKey(e, idx):
+            return free_in_lambda(e) | free_in_lambda(idx)
+        case src.EDictValue(e, idx):
+            return free_in_lambda(e) | free_in_lambda(idx)
         case src.EDictDel(e, key):
             return free_in_lambda(e) | free_in_lambda(key)
 

@@ -60,6 +60,12 @@ def select_stmt(end_label: Label, s: src.Stmt) -> IList[tgt.Instr]:
             return select_dict_call("dict_has", lhs, e_dict, e_key)
         case src.SAssign(lhs, src.EDictDel(e_dict, e_key)):
             return select_dict_call("dict_delete", lhs, e_dict, e_key)
+        case src.SAssign(lhs, src.EDictNext(e_dict, e_slot)):
+            return select_dict_call("dict_next", lhs, e_dict, e_slot)
+        case src.SAssign(lhs, src.EDictKey(e_dict, e_slot)):
+            return select_dict_call("dict_key_at", lhs, e_dict, e_slot)
+        case src.SAssign(lhs, src.EDictValue(e_dict, e_slot)):
+            return select_dict_call("dict_value_at", lhs, e_dict, e_slot)
         case src.SAssign(lhs, src.EInput()):
             lhs_out = select_lhs(lhs)
             return ilist(
@@ -301,11 +307,11 @@ def select_atom(e: src.ExprAtom) -> tgt.Const | tgt.Id:
             return x
 
 # Dict operations that don't allocate: call the runtime and store the result.
-def select_dict_call(fun: str, lhs: src.Lhs, e_dict: src.ExprAtom, e_key: src.ExprAtom) -> IList[tgt.Instr]:
+def select_dict_call(fun: str, lhs: src.Lhs, e_dict: src.ExprAtom, e_arg: src.ExprAtom) -> IList[tgt.Instr]:
     lhs_out = select_lhs(lhs)
     return ilist(
         tgt.Move(a0, select_atom(e_dict)),
-        tgt.Move(a1, select_atom(e_key)),
+        tgt.Move(a1, select_atom(e_arg)),
         tgt.Call(Label(fun), 2, 'normal'),
         tgt.Move(lhs_out, a0),
     )

@@ -90,6 +90,14 @@ def map_node(node: ast.AST, ctx: Cctx) -> Any:
             return SIf(map_node(test, ctx), map_nodes(body, ctx), map_nodes(orelse, ctx))
         case ast.IfExp(test, body, orelse):
             return EIf(map_node(test, ctx), map_node(body, ctx), map_node(orelse, ctx))
+        case ast.For(ast.Tuple([ast.Name(k), ast.Name(v)], _), ast.Call(ast.Attribute(e, "items"), [], []), body, []):
+            return SFor(Id(k), Id(v), map_node(e, ctx), map_nodes(body, ctx))
+        case ast.For(ast.Name(v), ast.Call(ast.Attribute(e, "values"), [], []), body, []):
+            return SFor(None, Id(v), map_node(e, ctx), map_nodes(body, ctx))
+        case ast.For(ast.Name(k), ast.Call(ast.Attribute(e, "keys"), [], []), body, []):
+            return SFor(Id(k), None, map_node(e, ctx), map_nodes(body, ctx))
+        case ast.For(ast.Name(k), e, body, []):
+            return SFor(Id(k), None, map_node(e, ctx), map_nodes(body, ctx))
         case ast.While(test, body, []):
             return SWhile(map_node(test, ctx), map_nodes(body, ctx))
         case ast.Assign(y, value, _):

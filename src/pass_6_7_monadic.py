@@ -158,6 +158,18 @@ def monadic_expr(e: src.Expr) -> tuple[IList[tgt.Stmt], tgt.Expr]:
             p_e, e_out = monadic_atom(e)
             p_key, key_out = monadic_atom(key)
             return p_e + p_key, tgt.EDictHas(e_out, key_out)
+        case src.EDictNext(e, idx):
+            p_e, e_out = monadic_atom(e)
+            p_idx, idx_out = monadic_atom(idx)
+            return p_e + p_idx, tgt.EDictNext(e_out, idx_out)
+        case src.EDictKey(e, idx):
+            p_e, e_out = monadic_atom(e)
+            p_idx, idx_out = monadic_atom(idx)
+            return p_e + p_idx, tgt.EDictKey(e_out, idx_out)
+        case src.EDictValue(e, idx):
+            p_e, e_out = monadic_atom(e)
+            p_idx, idx_out = monadic_atom(idx)
+            return p_e + p_idx, tgt.EDictValue(e_out, idx_out)
         case src.EDictDel(e, key):
             p_e, e_out = monadic_atom(e)
             p_key, key_out = monadic_atom(key)

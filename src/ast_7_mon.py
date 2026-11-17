@@ -34,7 +34,8 @@ class EVar:
 type Expr = ExprAtom | EOp1 | EOp2Arith | EOp2Comp | EInput \
           | ETupleAccess | ETupleLen | EAllocate | EGlobal \
           | ECall | EFunRef \
-          | EDict | EDictAccess | EDictHas | EDictDel
+          | EDict | EDictAccess | EDictHas | EDictDel \
+          | EDictNext | EDictKey | EDictValue
 
 @dataclass(frozen=True)
 class EOp1:
@@ -103,6 +104,21 @@ class EDictHas:
 class EDictDel:
     e: ExprAtom
     key: ExprAtom
+
+@dataclass(frozen=True)
+class EDictNext:
+    e: ExprAtom
+    index: ExprAtom
+
+@dataclass(frozen=True)
+class EDictKey:
+    e: ExprAtom
+    index: ExprAtom
+
+@dataclass(frozen=True)
+class EDictValue:
+    e: ExprAtom
+    index: ExprAtom
 
 # Left-hand sides of Assign Statements
 
@@ -282,3 +298,9 @@ def pretty_expr(e: Expr) -> str:
             return f"{pretty_expr(key)} in {pretty_expr(e)}"
         case EDictDel(e, key):
             return f"del {pretty_expr(e)}[{pretty_expr(key)}]"
+        case EDictNext(e, index):
+            return f"dict_next({pretty_expr(e)}, {pretty_expr(index)})"
+        case EDictKey(e, index):
+            return f"dict_key({pretty_expr(e)}, {pretty_expr(index)})"
+        case EDictValue(e, index):
+            return f"dict_value({pretty_expr(e)}, {pretty_expr(index)})"

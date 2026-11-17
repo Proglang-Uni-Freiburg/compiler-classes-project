@@ -106,6 +106,12 @@ def closure_conv_expr(decls_out: list[tgt.Decl], e: src.Expr) -> tgt.Expr:
             return tgt.EDictAccess(closure_conv_expr(decls_out, e), closure_conv_expr(decls_out, key))
         case src.EDictHas(e, key):
             return tgt.EDictHas(closure_conv_expr(decls_out, e), closure_conv_expr(decls_out, key))
+        case src.EDictNext(e, idx):
+            return tgt.EDictNext(closure_conv_expr(decls_out, e), closure_conv_expr(decls_out, idx))
+        case src.EDictKey(e, idx):
+            return tgt.EDictKey(closure_conv_expr(decls_out, e), closure_conv_expr(decls_out, idx))
+        case src.EDictValue(e, idx):
+            return tgt.EDictValue(closure_conv_expr(decls_out, e), closure_conv_expr(decls_out, idx))
         case src.EDictDel(e, key):
             return tgt.EDictDel(closure_conv_expr(decls_out, e), closure_conv_expr(decls_out, key))
         case src.ELambda(params, body, fvs):

@@ -36,7 +36,43 @@ def shrink_decl(d: src.Decl) -> tgt.Decl:
             return tgt.DFun(name, params, shrink_stmts(body))
 
 def shrink_stmts(ss: IList[src.Stmt]) -> IList[tgt.Stmt]:
-    return IList([shrink_stmt(s) for s in ss])
+    out = []
+    for s in ss:
+        match s:
+            case src.SFor():
+                out += shrink_for(s)
+            case _:
+                out.append(shrink_stmt(s))
+    return IList(out)
+
+# `for k, v in d.items(): body` becomes a while loop over the slots of the
+# dict's backing array (see runtime.c):
+#
+#     it = d
+#     slot = dict_next(it, 0)
+#     while slot >= 0:
+#         k = dict_key(it, slot)
+#         v = dict_value(it, slot)
+#         body
+#         slot = dict_next(it, slot + 1)
+#
+# dict_next returns the first occupied slot at or after its argument, or -1.
+def shrink_for(s: src.SFor) -> list[tgt.Stmt]:
+    d = Id.fresh("iter_dict")
+    slot = Id.fresh("iter_slot")
+    body: list[tgt.Stmt] = []
+    if s.key is not None:
+        body.append(tgt.SAssign(s.key, tgt.EDictKey(tgt.EVar(d), tgt.EVar(slot))))
+    if s.value is not None:
+        body.append(tgt.SAssign(s.value, tgt.EDictValue(tgt.EVar(d), tgt.EVar(slot))))
+    body += shrink_stmts(s.body)
+    next_slot = tgt.EOp2(tgt.EVar(slot), "+", tgt.EConst(1, '63bit'))
+    body.append(tgt.SAssign(slot, tgt.EDictNext(tgt.EVar(d), next_slot)))
+    return [
+        tgt.SAssign(d, shrink_expr(s.e)),
+        tgt.SAssign(slot, tgt.EDictNext(tgt.EVar(d), tgt.EConst(0, '63bit'))),
+        tgt.SWhile(tgt.EOp2(tgt.EVar(slot), ">=", tgt.EConst(0, '63bit')), IList(body)),
+    ]
 
 def shrink_classes(cc: IList[src.SClass]) -> IList[tgt.DFun]:
     all_funs = []

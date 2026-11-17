@@ -110,6 +110,12 @@ def limit_expr(e: src.Expr) -> tgt.Expr:
             return tgt.EDictAccess(limit_expr(e), limit_expr(key))
         case src.EDictHas(e, key):
             return tgt.EDictHas(limit_expr(e), limit_expr(key))
+        case src.EDictNext(e, idx):
+            return tgt.EDictNext(limit_expr(e), limit_expr(idx))
+        case src.EDictKey(e, idx):
+            return tgt.EDictKey(limit_expr(e), limit_expr(idx))
+        case src.EDictValue(e, idx):
+            return tgt.EDictValue(limit_expr(e), limit_expr(idx))
         case src.EDictDel(e, key):
             return tgt.EDictDel(limit_expr(e), limit_expr(key))
 

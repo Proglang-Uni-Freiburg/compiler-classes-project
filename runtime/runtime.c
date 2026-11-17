@@ -397,6 +397,39 @@ int64_t dict_delete(int64_t tagged_dict, int64_t tagged_key) {
     return 0;
 }
 
+// Iteration. Slot indices are tagged ints.
+
+// First occupied slot at or after `tagged_slot`, or -1 if there is none.
+int64_t dict_next(int64_t tagged_dict, int64_t tagged_slot) {
+    int64_t* wrapper  = gc_remove_ptr_tag((int64_t*) tagged_dict);
+    int64_t  capacity = (int64_t)((uint64_t)wrapper[2] >> 1);
+    int64_t* backing  = gc_remove_ptr_tag((int64_t*) wrapper[3]);
+    for (int64_t slot = tagged_slot >> 1; slot < capacity; slot++) {
+        if (backing[1 + 3 * slot] == 2) return slot << 1;
+    }
+    return -2;  // tagged -1
+}
+
+static int64_t* dict_slot(int64_t tagged_dict, int64_t tagged_slot) {
+    int64_t* wrapper  = gc_remove_ptr_tag((int64_t*) tagged_dict);
+    int64_t  capacity = (int64_t)((uint64_t)wrapper[2] >> 1);
+    int64_t* backing  = gc_remove_ptr_tag((int64_t*) wrapper[3]);
+    int64_t  slot     = tagged_slot >> 1;
+    if (slot < 0 || slot >= capacity || backing[1 + 3 * slot] != 2) {
+        printf("PANIC: dict iteration on invalid slot\n");
+        exit(1);
+    }
+    return backing + 1 + 3 * slot;
+}
+
+int64_t dict_key_at(int64_t tagged_dict, int64_t tagged_slot) {
+    return dict_slot(tagged_dict, tagged_slot)[1];
+}
+
+int64_t dict_value_at(int64_t tagged_dict, int64_t tagged_slot) {
+    return dict_slot(tagged_dict, tagged_slot)[2];
+}
+
 // The compiler checks with dict_has that the key exists.
 int64_t dict_get(int64_t tagged_dict, int64_t tagged_key) {
     int64_t* entry = dict_find(tagged_dict, tagged_key);

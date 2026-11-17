@@ -106,7 +106,7 @@ class EMethod:
 
 # Statements
 
-type Stmt = SExpr | SPrint | SAssign | SIf | SWhile | SReturn | SRaise | STry | SClass
+type Stmt = SExpr | SPrint | SAssign | SIf | SWhile | SFor | SReturn | SRaise | STry | SClass
 
 @dataclass(frozen=True)
 class SExpr:
@@ -131,6 +131,15 @@ class SIf:
 @dataclass(frozen=True)
 class SWhile:
     test: Expr
+    body: IList[Stmt]
+
+# Iteration over a dict. `key` and `value` are the loop variables bound to the
+# entries' keys and values; at least one of them is set.
+@dataclass(frozen=True)
+class SFor:
+    key: Optional[Id]
+    value: Optional[Id]
+    e: Expr
     body: IList[Stmt]
 
 @dataclass(frozen=True)
@@ -220,6 +229,15 @@ def pretty_stmt(s: Stmt) -> str:
                    f"{indent(pretty_stmts(orelse))}"
         case SWhile(test, body):
             return f"while {pretty_expr(test)}:\n{indent(pretty_stmts(body))}"
+        case SFor(key, value, e, body):
+            match key, value:
+                case _, None:
+                    target = f"{key} in {pretty_expr(e)}"
+                case None, _:
+                    target = f"{value} in {pretty_expr(e)}.values()"
+                case _:
+                    target = f"{key}, {value} in {pretty_expr(e)}.items()"
+            return f"for {target}:\n{indent(pretty_stmts(body))}"
         case SReturn(e):
             return f"return {pretty_expr(e)}"
         case SRaise(e):

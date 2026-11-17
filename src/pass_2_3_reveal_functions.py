@@ -108,6 +108,12 @@ def reveal_expr(funs: set[Id], e: src.Expr) -> tgt.Expr:
             return tgt.EDictAccess(reveal_expr(funs, e), reveal_expr(funs, key))
         case src.EDictHas(e, key):
             return tgt.EDictHas(reveal_expr(funs, e), reveal_expr(funs, key))
+        case src.EDictNext(e, idx):
+            return tgt.EDictNext(reveal_expr(funs, e), reveal_expr(funs, idx))
+        case src.EDictKey(e, idx):
+            return tgt.EDictKey(reveal_expr(funs, e), reveal_expr(funs, idx))
+        case src.EDictValue(e, idx):
+            return tgt.EDictValue(reveal_expr(funs, e), reveal_expr(funs, idx))
         case src.EDictDel(e, key):
             return tgt.EDictDel(reveal_expr(funs, e), reveal_expr(funs, key))
 

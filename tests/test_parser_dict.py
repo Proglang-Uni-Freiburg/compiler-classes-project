@@ -2,9 +2,10 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pass_0_1_parser import parse
-from ast_1_python import EDict, EDictAccess, SAssign, pretty_expr, pretty_stmt
+from ast_1_python import EDict, EDictAccess, EDictHas, EDictDel, EOp1, ETupleLen, SAssign, SExpr, SFor, pretty_expr, pretty_stmt
 from types_ import TDict, TInt
 from identifier import Id
+from ast_1_python import EVar
 
 def test_dict_literal():
     p = parse("d = {1: 2, 3: 4}")
@@ -52,6 +53,49 @@ def test_pretty_dict_access():
 def test_pretty_dict_assign():
     p = parse("d[1] = 99")
     assert pretty_stmt(p.main_body[0]) == "d[1] = 99"
+
+def test_in():
+    stmt = parse("x = k in d").main_body[0]
+    assert isinstance(stmt.rhs, EDictHas)
+    assert stmt.rhs.key == EVar(Id("k"))
+
+def test_not_in():
+    stmt = parse("x = k not in d").main_body[0]
+    assert isinstance(stmt.rhs, EOp1)
+    assert stmt.rhs.op == "not"
+    assert isinstance(stmt.rhs.operand, EDictHas)
+
+def test_del():
+    stmt = parse("del d[k]").main_body[0]
+    assert isinstance(stmt, SExpr)
+    assert isinstance(stmt.expr, EDictDel)
+
+def test_len():
+    stmt = parse("x = len(d)").main_body[0]
+    assert isinstance(stmt.rhs, ETupleLen)
+
+def test_for_dict():
+    stmt = parse("for k in d:\n    print(k)").main_body[0]
+    assert isinstance(stmt, SFor)
+    assert stmt.key == Id("k") and stmt.value is None
+    assert stmt.e == EVar(Id("d"))
+
+def test_for_keys():
+    stmt = parse("for k in d.keys():\n    print(k)").main_body[0]
+    assert isinstance(stmt, SFor)
+    assert stmt.key == Id("k") and stmt.value is None
+    assert stmt.e == EVar(Id("d"))
+
+def test_for_values():
+    stmt = parse("for v in d.values():\n    print(v)").main_body[0]
+    assert isinstance(stmt, SFor)
+    assert stmt.key is None and stmt.value == Id("v")
+
+def test_for_items():
+    stmt = parse("for k, v in d.items():\n    print(v)").main_body[0]
+    assert isinstance(stmt, SFor)
+    assert stmt.key == Id("k") and stmt.value == Id("v")
+    assert len(list(stmt.body)) == 1
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

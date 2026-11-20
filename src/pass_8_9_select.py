@@ -38,6 +38,34 @@ def select_stmt(end_label: Label, s: src.Stmt) -> IList[tgt.Instr]:
                 tgt.Instr2('div', a0, a0, t0),
                 tgt.Call(Label("print_int64"), 1, 'normal'),
             )
+        case src.SAssign(src.LDictSet(e_dict, e_key), e_val):
+            return select_dict_set(select_atom(e_dict), e_key, e_val)
+        case src.SAssign(lhs, src.EDict(items)):
+            lhs_out = select_lhs(lhs)
+            # Build the dict in a temporary, as the GC may move it during the
+            # inserts and only updates variables.
+            d = Id.fresh("dict")
+            instrs = ilist(
+                tgt.Move(a0, sp),
+                tgt.Move(a1, tgt.Const(16, '64bit')),
+                tgt.Call(Label("dict_create"), 2, 'normal'),
+                tgt.Move(d, a0),
+            )
+            for k, v in items:
+                instrs += select_dict_set(d, k, v)
+            return instrs + ilist(tgt.Move(lhs_out, d))
+        case src.SAssign(lhs, src.EDictAccess(e_dict, e_key)):
+            return select_dict_call("dict_get", lhs, e_dict, e_key)
+        case src.SAssign(lhs, src.EDictHas(e_dict, e_key)):
+            return select_dict_call("dict_has", lhs, e_dict, e_key)
+        case src.SAssign(lhs, src.EDictDel(e_dict, e_key)):
+            return select_dict_call("dict_delete", lhs, e_dict, e_key)
+        case src.SAssign(lhs, src.EDictNext(e_dict, e_slot)):
+            return select_dict_call("dict_next", lhs, e_dict, e_slot)
+        case src.SAssign(lhs, src.EDictKey(e_dict, e_slot)):
+            return select_dict_call("dict_key_at", lhs, e_dict, e_slot)
+        case src.SAssign(lhs, src.EDictValue(e_dict, e_slot)):
+            return select_dict_call("dict_value_at", lhs, e_dict, e_slot)
         case src.SAssign(lhs, src.EInput()):
             lhs_out = select_lhs(lhs)
             return ilist(
@@ -277,6 +305,29 @@ def select_atom(e: src.ExprAtom) -> tgt.Const | tgt.Id:
             return tgt.Const(c, size)
         case src.EVar(x):
             return x
+
+# Dict operations that don't allocate: call the runtime and store the result.
+def select_dict_call(fun: str, lhs: src.Lhs, e_dict: src.ExprAtom, e_arg: src.ExprAtom) -> IList[tgt.Instr]:
+    lhs_out = select_lhs(lhs)
+    return ilist(
+        tgt.Move(a0, select_atom(e_dict)),
+        tgt.Move(a1, select_atom(e_arg)),
+        tgt.Call(Label(fun), 2, 'normal'),
+        tgt.Move(lhs_out, a0),
+    )
+
+def select_dict_set(d: tgt.ArgRead, e_key: src.ExprAtom, e_val: src.ExprAtom) -> IList[tgt.Instr]:
+    return ilist(
+        # Reserve heap space for a possible resize. This may collect, so all
+        # live variables (dict, key, value) are spilled and updated by the GC.
+        tgt.Move(a0, sp),
+        tgt.Move(a1, d),
+        tgt.Call(Label("dict_reserve"), 2, 'normal'),
+        tgt.Move(a0, d),
+        tgt.Move(a1, select_atom(e_key)),
+        tgt.Move(a2, select_atom(e_val)),
+        tgt.Call(Label("dict_set"), 3, 'normal'),
+    )
 
 def select_lhs(lhs: src.Lhs) -> tgt.Id | tgt.Offset:
     match lhs:

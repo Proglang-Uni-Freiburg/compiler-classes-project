@@ -50,7 +50,7 @@ def type_check_def(ctx: TCtx, d: Decl):
 
 def type_check_stmts(ctx: TCtx, ss: IList[Stmt]) -> bool:
     for s in ss:
-        if type_check_stmt(ctx, s):
+        if type_check_stmt(ctx, s): # Todo: only checks one expression, no?
             return True
     return False
 
@@ -88,6 +88,15 @@ def type_check_stmt(ctx: TCtx, s: Stmt) -> bool:
                         else:
                             ctx[x] = te
                         return False
+                    case EDictAccess(dict_e, key_e):
+                        dict_ty = type_check_expr(ctx, dict_e)
+                        match dict_ty:
+                            case TDict(key_ty, val_ty):
+                                check_expr(ctx, key_e, key_ty)
+                                check_type_equal(te, val_ty, s)
+                                return False
+                            case _:
+                                raise TypeError(f"Dict assignment on non-dict type {dict_ty}")
                     case _:
                         raise TypeError(f"can not assign {e} to {x}")
             # t is not None, meaning the rhs is with type annotation
@@ -113,6 +122,20 @@ def type_check_stmt(ctx: TCtx, s: Stmt) -> bool:
         case SWhile(test, body):
             ttest = type_check_expr(ctx, test)
             check_type_equal(ttest, TBool(), test)
+            type_check_stmts(ctx, body)
+            return False
+        case SFor(key, value, e, body):
+            match type_check_expr(ctx, e):
+                case TDict(key_ty, val_ty):
+                    for x, ty in [(key, key_ty), (value, val_ty)]:
+                        if x is None:
+                            continue
+                        if x in ctx:
+                            check_type_equal(ty, ctx[x], s)
+                        else:
+                            ctx[x] = ty
+                case t:
+                    raise TypeError(f"Iteration over non-dict type {t}")
             type_check_stmts(ctx, body)
             return False
         case SReturn(e):
@@ -244,20 +267,27 @@ def type_check_expr(ctx: TCtx, e: Expr) -> Type:
             return tbody
         case ETuple(es):
             return TTuple(IList([type_check_expr(ctx, e) for e in es]))
-        case ETupleAccess(e, i):
-            t = type_check_expr(ctx, e)
+        case ETupleAccess(expr, i):
+            t = type_check_expr(ctx, expr)
+            e.type = t
             match t:
                 case TTuple(ts):
                     if 0 <= i < len(ts):
                         return ts[i]
                     else:
                         raise TypeError(f"Index {i} is out of bounds for tuple of length {len(ts)}.")
+                case TDict(key_ty, val_ty):
+                    check_type_equal(TInt(), key_ty, e)
+                    return val_ty
                 case t:
                     raise TypeError(f"Tuple access on non-tuple type {t}.")
-        case ETupleLen(e):
-            t = type_check_expr(ctx, e)
+        case ETupleLen(expr):
+            t = type_check_expr(ctx, expr)
+            e.type = t
             match t:
                 case TTuple(ts):
+                    return TInt()
+                case TDict():
                     return TInt()
                 case t:
                     raise TypeError(f"Tuple length used on non-tuple type {t}.")
@@ -291,6 +321,31 @@ def type_check_expr(ctx: TCtx, e: Expr) -> Type:
                     raise TypeError(f"Calling non-function type {t}")
         case ELambda():
             raise TypeError(f"Cannot synthesize type of {pretty_expr(e)}")
+        case EDict(items):
+            if len(items) == 0:
+                raise TypeError("Cannot infer type of empty dict literal; add a type annotation")
+            key_ty = type_check_expr(ctx, items[0][0])
+            val_ty = type_check_expr(ctx, items[0][1])
+            for k, v in items[1:]:
+                check_expr(ctx, k, key_ty)
+                check_expr(ctx, v, val_ty)
+            return TDict(key_ty, val_ty)
+        case EDictHas(dict_e, key) | EDictDel(dict_e, key):
+            t = type_check_expr(ctx, dict_e)
+            match t:
+                case TDict(key_ty, _):
+                    check_expr(ctx, key, key_ty)
+                    return TBool() if isinstance(e, EDictHas) else TNone()
+                case _:
+                    raise TypeError(f"Dict operation on non-dict type {t}")
+        case EDictAccess(dict_e, key):
+            t = type_check_expr(ctx, dict_e)
+            match t:
+                case TDict(key_ty, val_ty):
+                    check_expr(ctx, key, key_ty)
+                    return val_ty
+                case _:
+                    raise TypeError(f"Dict access on non-dict type {t}")
         case EField(expr, fieldname):
             exprtype = type_check_expr(ctx, expr)
             e.type = exprtype
@@ -381,6 +436,14 @@ def check_expr(ctx: TCtx, e: Expr, ty: Type):
                     check_expr(new_ctx, body, ret_ty)
                 case _:
                     raise TypeError(f"Lambda cannot have type {pretty_type(ty)}")
+        case EDict(items):
+            match ty:
+                case TDict(key_ty, val_ty):
+                    for k, v in items:
+                        check_expr(ctx, k, key_ty)
+                        check_expr(ctx, v, val_ty)
+                case _:
+                    raise TypeError(f"Dict literal cannot have type {pretty_type(ty)}")
         case _:
             te = type_check_expr(ctx, e)
             check_type_equal(te, ty, e)

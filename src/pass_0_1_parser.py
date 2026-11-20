@@ -1,10 +1,11 @@
+# ruff: noqa
+import ast
 from dataclasses import dataclass
 from typing import Any, Sequence
-import ast
-from types_ import TCallable
 
-from ast_1_python import *
+from ast_1_python import * 
 from identifier import Id
+from types_ import TCallable
 from util.immutable_list import IList, ilist
 
 # as classes bahave like types and types are parsed statically, we need to keep track of all defined classes
@@ -71,6 +72,12 @@ def map_node(node: ast.AST, ctx: Cctx) -> Any:
             if not all([(c.isalnum() or c == "_") for c in id]):
                 raise IllegalName(id)
             return EVar(Id(id))
+        case ast.Compare(key, [ast.In()], [e]):
+            return EDictHas(map_node(e, ctx), map_node(key, ctx))
+        case ast.Compare(key, [ast.NotIn()], [e]):
+            return EOp1("not", EDictHas(map_node(e, ctx), map_node(key, ctx)))
+        case ast.Delete([ast.Subscript(e, key, _)]):
+            return SExpr(EDictDel(map_node(e, ctx), map_node(key, ctx)))
         case ast.UnaryOp(op, operand):
             return EOp1(map_node(op, ctx), map_node(operand, ctx))
         case (
@@ -83,6 +90,14 @@ def map_node(node: ast.AST, ctx: Cctx) -> Any:
             return SIf(map_node(test, ctx), map_nodes(body, ctx), map_nodes(orelse, ctx))
         case ast.IfExp(test, body, orelse):
             return EIf(map_node(test, ctx), map_node(body, ctx), map_node(orelse, ctx))
+        case ast.For(ast.Tuple([ast.Name(k), ast.Name(v)], _), ast.Call(ast.Attribute(e, "items"), [], []), body, []):
+            return SFor(Id(k), Id(v), map_node(e, ctx), map_nodes(body, ctx))
+        case ast.For(ast.Name(v), ast.Call(ast.Attribute(e, "values"), [], []), body, []):
+            return SFor(None, Id(v), map_node(e, ctx), map_nodes(body, ctx))
+        case ast.For(ast.Name(k), ast.Call(ast.Attribute(e, "keys"), [], []), body, []):
+            return SFor(Id(k), None, map_node(e, ctx), map_nodes(body, ctx))
+        case ast.For(ast.Name(k), e, body, []):
+            return SFor(Id(k), None, map_node(e, ctx), map_nodes(body, ctx))
         case ast.While(test, body, []):
             return SWhile(map_node(test, ctx), map_nodes(body, ctx))
         case ast.Assign(y, value, _):
@@ -93,6 +108,9 @@ def map_node(node: ast.AST, ctx: Cctx) -> Any:
                 # attribute
                 case [ast.Attribute(e, id)]:
                     return SAssign(EField(map_node(e, ctx), Id(id)), None, map_node(value, ctx))
+                # dict subscript: d[key] = val
+                case [ast.Subscript(e, key, _)]:
+                    return SAssign(EDictAccess(map_node(e, ctx), map_node(key, ctx)), None, map_node(value, ctx))
                 case _:
                     raise UnsupportedFeature(node)
         case ast.AnnAssign(ast.Name(x), ty, value) if value is not None:
@@ -107,6 +125,11 @@ def map_node(node: ast.AST, ctx: Cctx) -> Any:
             return ETuple(map_nodes(elts, ctx))
         case ast.Subscript(e, ast.Constant(int(i)), _):
             return ETupleAccess(map_node(e, ctx), i)
+        case ast.Subscript(e, key, _):
+            return EDictAccess(map_node(e, ctx), map_node(key, ctx))
+        case ast.Dict(keys, values) if all(k is not None for k in keys):
+            items = IList([(map_node(k, ctx), map_node(v, ctx)) for k, v in zip(keys, values)])
+            return EDict(items)
         case ast.Call(ast.Name("len"), [arg], keywords) if len(keywords) == 0:
             return ETupleLen(map_node(arg, ctx))
         case ast.Expr(value):
@@ -228,6 +251,8 @@ def map_type_node(node: ast.AST, ctx: Cctx) -> Type:
                     return TTuple(ilist(map_type_node(sl, ctx)))
         case ast.Subscript(ast.Name("Callable"), ast.Tuple([ast.List(params), ret])):
             return TCallable(map_type_nodes(params, ctx), map_type_node(ret, ctx))
+        case ast.Subscript(ast.Name("dict"), ast.Tuple([key_ty, val_ty])):
+            return TDict(map_type_node(key_ty, ctx), map_type_node(val_ty, ctx))
         case ast.Name(classname, _):
             if Id(classname) in ctx:
                 return ctx[Id(classname)]

@@ -1,3 +1,4 @@
+# ruff: noqa
 import ast_1_python as src
 import ast_2_shrunk as tgt
 from types_ import *
@@ -35,7 +36,43 @@ def shrink_decl(d: src.Decl) -> tgt.Decl:
             return tgt.DFun(name, params, shrink_stmts(body))
 
 def shrink_stmts(ss: IList[src.Stmt]) -> IList[tgt.Stmt]:
-    return IList([shrink_stmt(s) for s in ss])
+    out = []
+    for s in ss:
+        match s:
+            case src.SFor():
+                out += shrink_for(s)
+            case _:
+                out.append(shrink_stmt(s))
+    return IList(out)
+
+# `for k, v in d.items(): body` becomes a while loop over the slots of the
+# dict's backing array (see runtime.c):
+#
+#     it = d
+#     slot = dict_next(it, 0)
+#     while slot >= 0:
+#         k = dict_key(it, slot)
+#         v = dict_value(it, slot)
+#         body
+#         slot = dict_next(it, slot + 1)
+#
+# dict_next returns the first occupied slot at or after its argument, or -1.
+def shrink_for(s: src.SFor) -> list[tgt.Stmt]:
+    d = Id.fresh("iter_dict")
+    slot = Id.fresh("iter_slot")
+    body: list[tgt.Stmt] = []
+    if s.key is not None:
+        body.append(tgt.SAssign(s.key, tgt.EDictKey(tgt.EVar(d), tgt.EVar(slot))))
+    if s.value is not None:
+        body.append(tgt.SAssign(s.value, tgt.EDictValue(tgt.EVar(d), tgt.EVar(slot))))
+    body += shrink_stmts(s.body)
+    next_slot = tgt.EOp2(tgt.EVar(slot), "+", tgt.EConst(1, '63bit'))
+    body.append(tgt.SAssign(slot, tgt.EDictNext(tgt.EVar(d), next_slot)))
+    return [
+        tgt.SAssign(d, shrink_expr(s.e)),
+        tgt.SAssign(slot, tgt.EDictNext(tgt.EVar(d), tgt.EConst(0, '63bit'))),
+        tgt.SWhile(tgt.EOp2(tgt.EVar(slot), ">=", tgt.EConst(0, '63bit')), IList(body)),
+    ]
 
 def shrink_classes(cc: IList[src.SClass]) -> IList[tgt.DFun]:
     all_funs = []
@@ -108,11 +145,9 @@ def shrink_class(c: src.SClass) -> list[tgt.DFun]:
 def shrink_stmt(s: src.Stmt) -> tgt.Stmt:
     match s:
         case src.SExpr(e):
-            e = shrink_expr(e)
-            return tgt.SExpr(e)
+            return tgt.SExpr(shrink_expr(e))
         case src.SPrint(e):
-            e = shrink_expr(e)
-            return tgt.SPrint(e)
+            return tgt.SPrint(shrink_expr(e))
         # BEGIN
         case src.SAssign(x, _, e):
         # END
@@ -120,6 +155,8 @@ def shrink_stmt(s: src.Stmt) -> tgt.Stmt:
             match x:
                 case Id(_):
                     return tgt.SAssign(x, e)
+                case src.EDictAccess(dict_e, key_e):
+                    return tgt.SAssign(tgt.EDictAccess(shrink_expr(dict_e), shrink_expr(key_e)), e)
                 case src.EField(expr, name):
                     shrunk = shrink_expr(x)
                     match shrunk:
@@ -128,24 +165,15 @@ def shrink_stmt(s: src.Stmt) -> tgt.Stmt:
                         case _:
                             raise Exception(f"can not assign to {expr}")
         case src.SIf(e, b1, b2):
-            e = shrink_expr(e)
-            b1 = shrink_stmts(b1)
-            b2 = shrink_stmts(b2)
-            return tgt.SIf(e, b1, b2)
+            return tgt.SIf(shrink_expr(e), shrink_stmts(b1), shrink_stmts(b2))
         case src.SWhile(e, b):
-            e = shrink_expr(e)
-            b = shrink_stmts(b)
-            return tgt.SWhile(e, b)
+            return tgt.SWhile(shrink_expr(e), shrink_stmts(b))
         case src.SReturn(e):
-            e = shrink_expr(e)
-            return tgt.SReturn(e)
+            return tgt.SReturn(shrink_expr(e))
         case src.SRaise(e):
-            e = shrink_expr(e)
-            return tgt.SRaise(e)
+            return tgt.SRaise(shrink_expr(e))
         case src.STry(body, x, handler):
-            body = shrink_stmts(body)
-            handler = shrink_stmts(handler)
-            return tgt.STry(body, x, handler)
+            return tgt.STry(shrink_stmts(body), x, shrink_stmts(handler))
         # class statements should not occur here as they are treated completley seperatley
         case src.SClass(name, _, _, _):
             raise Exception(f"Internal error: encountered class definition of {name} in body.")
@@ -160,8 +188,7 @@ def shrink_expr(e: src.Expr) -> tgt.Expr:
         case src.EInput():
             return tgt.EInput()
         case src.EOp1(op, e1):
-            e1 = shrink_expr(e1)
-            return tgt.EOp1(op, e1)
+            return tgt.EOp1(op, shrink_expr(e1))
         case src.EOp2(e1, op, e2):
             e1 = shrink_expr(e1)
             e2 = shrink_expr(e2)
@@ -177,24 +204,34 @@ def shrink_expr(e: src.Expr) -> tgt.Expr:
                 case _:
                     return tgt.EOp2(e1, op, e2)
         case src.EIf(e1, e2, e3):
-            e1 = shrink_expr(e1)
-            e2 = shrink_expr(e2)
-            e3 = shrink_expr(e3)
-            return tgt.EIf(e1, e2, e3)
+            return tgt.EIf(shrink_expr(e1), shrink_expr(e2), shrink_expr(e3))
         case src.ETuple(es):
             return tgt.ETuple(IList([shrink_expr(e) for e in es]))
+        # constant-key dict accesses are parsed as tuple accesses; the type
+        # checker annotated the type of the subscripted expression
+        case src.ETupleAccess(e1, i) if isinstance(e.type, TDict): # type: ignore
+            return tgt.EDictAccess(shrink_expr(e1), tgt.EConst(i, '63bit'))
         case src.ETupleAccess(e, i):
             return tgt.ETupleAccess(shrink_expr(e), i)
+        # the first field of the dict wrapper (see runtime.c) is the tagged count
+        case src.ETupleLen(e1) if isinstance(e.type, TDict): # type: ignore
+            return tgt.ETupleAccess(shrink_expr(e1), 0)
         case src.ETupleLen(e):
             return tgt.ETupleLen(shrink_expr(e))
         case src.ECall(e_fun, e_args):
-            e_fun = shrink_expr(e_fun)
-            e_args = IList([shrink_expr(arg) for arg in e_args])
-            return tgt.ECall(e_fun, e_args)
+            return tgt.ECall(shrink_expr(e_fun), IList([shrink_expr(arg) for arg in e_args]))
         # BEGIN
         case src.ELambda(params, body):
             return tgt.ELambda(params, shrink_expr(body))
         # END
+        case src.EDict(items):
+            return tgt.EDict(IList([(shrink_expr(k), shrink_expr(v)) for k, v in items]))
+        case src.EDictAccess(e, key):
+            return tgt.EDictAccess(shrink_expr(e), shrink_expr(key))
+        case src.EDictHas(e, key):
+            return tgt.EDictHas(shrink_expr(e), shrink_expr(key))
+        case src.EDictDel(e, key):
+            return tgt.EDictDel(shrink_expr(e), shrink_expr(key))
         case src.EField(expr, name):
             class_type = e.type # type: ignore
             field_ids, _ = unique_member_resolution(class_type)
@@ -218,27 +255,22 @@ def shrink_expr(e: src.Expr) -> tgt.Expr:
                         break
                     i += 1
                 clazz = tgt.ETupleAccess(shrink_expr(expr), 0)
-                # this should be an EVar whos name is the name of the method/function
                 method = tgt.ETupleAccess(clazz, i)
-                # shrink args, add self first:
                 new_args = [shrink_expr(expr)]
                 for arg in args:
                     new_args.append(shrink_expr(arg))
                 return tgt.ECall(method, IList(new_args))
-            # we did not find the called object in the methods, so we look in the fields to check if we have a Callable with name here
             elif name in field_ids:
                 i = 0
                 for field_name in field_ids:
                     if field_name == name:
                         break
                     i += 1
-                # here we need to access the member variable in the tuple of the object (NOT the class object) and call the ELambda there
                 # (index + 1) as first obj in tuple is class obj
                 callable_member = tgt.ETupleAccess(shrink_expr(expr), i + 1)
                 new_args = []
                 for arg in args:
                     new_args.append(shrink_expr(arg))
                 return tgt.ECall(callable_member, IList(new_args))
-            # could not find it anywhere - can not generate code
             else:
                 raise Exception(f"could not find called method {name}")

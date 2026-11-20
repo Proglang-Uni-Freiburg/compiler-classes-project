@@ -19,7 +19,8 @@ type Op2 = Literal["+", "-", "==", "!=", "<=", "<", ">", ">=", "and", "or", "is"
 
 type Expr = EConst | EVar | EOp1 | EOp2 | EInput | EIf \
           | ETuple | ETupleAccess | ETupleLen \
-          | ECall | ELambda | EField
+          | ECall | ELambda | EField \
+          | EDict | EDictAccess | EDictHas | EDictDel
 
 @dataclass(frozen=True)
 class EConst:
@@ -54,12 +55,12 @@ class EIf:
 class ETuple:
     es: IList[Expr]
 
-@dataclass(frozen=True)
+@dataclass # not frozen, as we add the type of e to it in the typechecker!
 class ETupleAccess:
     e: Expr
     index: int
 
-@dataclass(frozen=True)
+@dataclass # not frozen, as we add the type of e to it in the typechecker!
 class ETupleLen:
     e: Expr
 
@@ -72,6 +73,25 @@ class ECall:
 class ELambda:
     params: IList[Id]
     body: Expr
+
+@dataclass(frozen=True)
+class EDict:
+    items: IList[tuple[Expr, Expr]]
+
+@dataclass(frozen=True)
+class EDictAccess:
+    e: Expr
+    key: Expr
+
+@dataclass(frozen=True)
+class EDictHas:
+    e: Expr
+    key: Expr
+
+@dataclass(frozen=True)
+class EDictDel:
+    e: Expr
+    key: Expr
 
 @dataclass # not frozen, as we add the type of e to it in the typechecker!
 class EField:
@@ -86,7 +106,7 @@ class EMethod:
 
 # Statements
 
-type Stmt = SExpr | SPrint | SAssign | SIf | SWhile | SReturn | SRaise | STry | SClass
+type Stmt = SExpr | SPrint | SAssign | SIf | SWhile | SFor | SReturn | SRaise | STry | SClass
 
 @dataclass(frozen=True)
 class SExpr:
@@ -98,7 +118,7 @@ class SPrint:
 
 @dataclass(frozen=True)
 class SAssign:
-    lhs: Id | EField
+    lhs: Id | EField | EDictAccess
     ty: Optional[Type]
     rhs: Expr
 
@@ -111,6 +131,15 @@ class SIf:
 @dataclass(frozen=True)
 class SWhile:
     test: Expr
+    body: IList[Stmt]
+
+# Iteration over a dict. `key` and `value` are the loop variables bound to the
+# entries' keys and values; at least one of them is set.
+@dataclass(frozen=True)
+class SFor:
+    key: Optional[Id]
+    value: Optional[Id]
+    e: Expr
     body: IList[Stmt]
 
 @dataclass(frozen=True)
@@ -179,13 +208,13 @@ def pretty_stmt(s: Stmt) -> str:
         case SExpr(e):
             return pretty_expr(e)
         case SAssign(x, t, e):
-            match x: 
+            match x:
                 case Id(_):
                     if t is None:
                         return f"{x} = {pretty_expr(e)}"
                     else:
                         return f"{x}: {pretty_type(t)} = {pretty_expr(e)}"
-                case EField(_):
+                case EField(_) | EDictAccess():
                     if t is None:
                         return f"{pretty_expr(x)} = {pretty_expr(e)}"
                     else:
@@ -200,6 +229,15 @@ def pretty_stmt(s: Stmt) -> str:
                    f"{indent(pretty_stmts(orelse))}"
         case SWhile(test, body):
             return f"while {pretty_expr(test)}:\n{indent(pretty_stmts(body))}"
+        case SFor(key, value, e, body):
+            match key, value:
+                case _, None:
+                    target = f"{key} in {pretty_expr(e)}"
+                case None, _:
+                    target = f"{value} in {pretty_expr(e)}.values()"
+                case _:
+                    target = f"{key}, {value} in {pretty_expr(e)}.items()"
+            return f"for {target}:\n{indent(pretty_stmts(body))}"
         case SReturn(e):
             return f"return {pretty_expr(e)}"
         case SRaise(e):
@@ -246,6 +284,15 @@ def pretty_expr(e: Expr) -> str:
             return f"{pretty_expr(e)}.{name}"
         case EMethod(e, name, args):
             return f"{pretty_expr(e)}.{name}(" + ", ".join(pretty_expr(a) for a in args) + ")"
+        case EDict(items):
+            pairs = ", ".join(f"{pretty_expr(k)}: {pretty_expr(v)}" for k, v in items)
+            return "{" + pairs + "}"
+        case EDictAccess(e, key):
+            return f"{pretty_expr(e)}[{pretty_expr(key)}]"
+        case EDictHas(e, key):
+            return f"{pretty_expr(key)} in {pretty_expr(e)}"
+        case EDictDel(e, key):
+            return f"del {pretty_expr(e)}[{pretty_expr(key)}]"
 
 def pretty_anything(x: Program | Decl | Stmt | Expr) -> str:
     try:

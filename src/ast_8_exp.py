@@ -43,7 +43,9 @@ class ExcTmpNames:
 
 type Expr = ExprAtom | EOp1 | EOp2Arith | EInput | EOp2Comp \
           | ETupleAccess | ETupleLen | EAllocate | EGlobal \
-          | ECall | EFunRef
+          | ECall | EFunRef \
+          | EDict | EDictAccess | EDictHas | EDictDel \
+          | EDictNext | EDictKey | EDictValue
 
 @dataclass(frozen=True)
 class EOp1:
@@ -96,9 +98,43 @@ class ECall:
 class EFunRef:
     fun: Label
 
+@dataclass(frozen=True)
+class EDict:
+    items: IList[tuple['ExprAtom', 'ExprAtom']]
+
+@dataclass(frozen=True)
+class EDictAccess:
+    e: ExprAtom
+    key: ExprAtom
+
+@dataclass(frozen=True)
+class EDictHas:
+    e: ExprAtom
+    key: ExprAtom
+
+@dataclass(frozen=True)
+class EDictDel:
+    e: ExprAtom
+    key: ExprAtom
+
+@dataclass(frozen=True)
+class EDictNext:
+    e: ExprAtom
+    index: ExprAtom
+
+@dataclass(frozen=True)
+class EDictKey:
+    e: ExprAtom
+    index: ExprAtom
+
+@dataclass(frozen=True)
+class EDictValue:
+    e: ExprAtom
+    index: ExprAtom
+
 # Left-hand sides of Assign Statements
 
-type Lhs = LId | LSubscript
+type Lhs = LId | LSubscript | LDictSet
 
 @dataclass
 class LId:
@@ -108,6 +144,11 @@ class LId:
 class LSubscript:
     e: ExprAtom
     offset: int
+
+@dataclass
+class LDictSet:
+    e: ExprAtom
+    key: ExprAtom
 
 # Statements
 
@@ -219,6 +260,8 @@ def pretty_lhs(lhs: Lhs) -> str:
             return str(x)
         case LSubscript(e, i):
             return f"{pretty_expr(e)}[{i}]"
+        case LDictSet(e, key):
+            return f"{pretty_expr(e)}[{pretty_expr(key)}]"
 
 def pretty_stmt(s: Stmt) -> str:
     match s:
@@ -275,3 +318,18 @@ def pretty_expr(e: Expr) -> str:
             return f"{pretty_expr(func)}({args_str})"
         case EFunRef(label):
             return f"{label}"
+        case EDict(items):
+            pairs = ", ".join(f"{pretty_expr(k)}: {pretty_expr(v)}" for k, v in items)
+            return "{" + pairs + "}"
+        case EDictAccess(e, key):
+            return f"{pretty_expr(e)}[{pretty_expr(key)}]"
+        case EDictHas(e, key):
+            return f"{pretty_expr(key)} in {pretty_expr(e)}"
+        case EDictDel(e, key):
+            return f"del {pretty_expr(e)}[{pretty_expr(key)}]"
+        case EDictNext(e, index):
+            return f"dict_next({pretty_expr(e)}, {pretty_expr(index)})"
+        case EDictKey(e, index):
+            return f"dict_key({pretty_expr(e)}, {pretty_expr(index)})"
+        case EDictValue(e, index):
+            return f"dict_value({pretty_expr(e)}, {pretty_expr(index)})"
